@@ -17,4 +17,13 @@ public class Ride {
     public List<User> participants = new ArrayList<>();
 
     public Ride() {}
+
+    public boolean isValid() {
+        if (id == null || creator == null || creator.trim().isEmpty()) return false;
+        if (departure == null || departure.trim().isEmpty()) return false;
+        if (destination == null || destination.trim().isEmpty()) return false;
+        if (time == null || time.trim().isEmpty()) return false;
+        if (totalSeats == null || totalSeats < 1) return false;
+        return true;
+    }
 }

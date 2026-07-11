@@ -33,11 +33,28 @@ public class Main {
                     SocketRequest req = ctx.messageAsClass(SocketRequest.class);
 
                     if ("createRide".equals(req.type)) {
+                        if (req.rideData == null || !req.rideData.isValid()) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка сервера: переданы пустые или некорректные данные поездки"));
+                            return;
+                        }
+                        if (isUserInActiveRide(req.rideData.creator)) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка: у вас уже есть активная поездка"));
+                            return;
+                        }
                         rides.add(req.rideData);
                         System.out.println("Создана новая поездка: " + req.rideData.id);
                         broadcast("updateRides", rides);
                     } 
                     else if ("joinRide".equals(req.type)) {
+                        if (req.user == null || req.user.id == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка: некорректные данные пользователя"));
+                            return;
+                        }
+                        if (isUserInActiveRide(req.user.id)) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка: вы уже состоите в другой поездке"));
+                            return;
+                        }
+
                         Ride target = rides.stream()
                             .filter(r -> r.id.equals(req.rideId))
                             .findFirst()
@@ -69,7 +86,8 @@ public class Main {
                             .orElse(null);
                         
                         if (target != null) {
-                            if (Boolean.TRUE.equals(req.isCreator)) {
+                            // Серверная проверка создателя вместо клиентского req.isCreator
+                            if (target.creator.equals(req.userId)) {
                                 rides.remove(target);
                             } else {
                                 target.participants.removeIf(p -> p.id.equals(req.userId));
@@ -89,6 +107,13 @@ public class Main {
                 System.out.println("Клиент отключился: " + ctx.getSessionId());
             });
         });
+    }
+
+    private static boolean isUserInActiveRide(String userId) {
+        return rides.stream().anyMatch(r -> 
+            ("ACTIVE".equals(r.status) || "FULL".equals(r.status)) && 
+            r.participants.stream().anyMatch(p -> p.id.equals(userId))
+        );
     }
 
     private static void broadcast(String event, Object data) {
