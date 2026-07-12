@@ -14,6 +14,8 @@ public class Ride {
     public String time;
     public Integer totalSeats;
     public String status;
+    public Double lat;
+    public Double lon;
     public List<User> participants = new ArrayList<>();
 
     public Ride() {}

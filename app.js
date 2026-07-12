@@ -70,6 +70,13 @@ socket.on('errorMsg', (msg) => {
 });
 
 const app = {
+    createMapInstance: null,
+    createMarker: null,
+    currentLat: null,
+    currentLon: null,
+    detailsMapInstance: null,
+    detailsMarker: null,
+
     init() {
         const savedUser = localStorage.getItem('uniride_user');
         if (savedUser) {
@@ -121,6 +128,9 @@ const app = {
 
     showModal(modalId) {
         document.getElementById(modalId).classList.add('active');
+        if (modalId === 'create-ride-modal') {
+            setTimeout(() => this.initCreateMap(), 300);
+        }
     },
 
     closeModal(modalId) {
@@ -156,6 +166,35 @@ const app = {
     selectCombo(id, text) {
         document.getElementById('create-' + id).value = text;
         document.getElementById('options-' + id).style.display = 'none';
+    },
+
+    initCreateMap() {
+        if (!window.ymaps) return;
+        ymaps.ready(() => {
+            if (this.createMapInstance) {
+                if (this.createMarker) this.createMapInstance.geoObjects.remove(this.createMarker);
+                this.createMarker = null;
+                this.currentLat = null;
+                this.currentLon = null;
+                return;
+            }
+            this.createMapInstance = new ymaps.Map('create-map', {
+                center: [56.307, 44.996], // пл. Лядова
+                zoom: 14,
+                controls: ['zoomControl']
+            });
+            this.createMapInstance.events.add('click', (e) => {
+                const coords = e.get('coords');
+                this.currentLat = coords[0];
+                this.currentLon = coords[1];
+                if (this.createMarker) {
+                    this.createMarker.geometry.setCoordinates(coords);
+                } else {
+                    this.createMarker = new ymaps.Placemark(coords, {}, { preset: 'islands#redIcon' });
+                    this.createMapInstance.geoObjects.add(this.createMarker);
+                }
+            });
+        });
     },
 
     logout() {
@@ -401,7 +440,9 @@ const app = {
             time: time,
             totalSeats: seats,
             participants: [state.currentUser], // Pass full user object
-            status: 'ACTIVE'
+            status: 'ACTIVE',
+            lat: this.currentLat,
+            lon: this.currentLon
         };
 
         // Send to Server
@@ -574,6 +615,29 @@ const app = {
         }
 
         container.innerHTML = html;
+
+        // Yandex Map Render
+        const mapContainer = document.getElementById('details-map-container');
+        if (ride.lat && ride.lon && window.ymaps) {
+            mapContainer.style.display = 'block';
+            ymaps.ready(() => {
+                if (!this.detailsMapInstance) {
+                    document.getElementById('details-map').innerHTML = '';
+                    this.detailsMapInstance = new ymaps.Map('details-map', {
+                        center: [ride.lat, ride.lon],
+                        zoom: 16,
+                        controls: ['zoomControl']
+                    });
+                    this.detailsMarker = new ymaps.Placemark([ride.lat, ride.lon], { balloonContent: 'Место встречи' }, { preset: 'islands#redIcon' });
+                    this.detailsMapInstance.geoObjects.add(this.detailsMarker);
+                } else {
+                    this.detailsMapInstance.setCenter([ride.lat, ride.lon]);
+                    this.detailsMarker.geometry.setCoordinates([ride.lat, ride.lon]);
+                }
+            });
+        } else {
+            if (mapContainer) mapContainer.style.display = 'none';
+        }
     }
 };
 
