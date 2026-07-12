@@ -199,6 +199,7 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 /* Forms */
 .form-group {
     margin-bottom: 16px;
+    position: relative;
 }
 .form-row {
     display: flex;

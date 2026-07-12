@@ -144,6 +144,20 @@ const app = {
         document.getElementById('custom-' + id).classList.remove('open');
     },
 
+    openCombo(id) {
+        const d1 = document.getElementById('options-departure');
+        const d2 = document.getElementById('options-destination');
+        if (d1 && id !== 'departure') d1.style.display = 'none';
+        if (d2 && id !== 'destination') d2.style.display = 'none';
+        
+        document.getElementById('options-' + id).style.display = 'block';
+    },
+
+    selectCombo(id, text) {
+        document.getElementById('create-' + id).value = text;
+        document.getElementById('options-' + id).style.display = 'none';
+    },
+
     logout() {
         if (this.isUserInActiveRide()) {
             this.showToast('Вы не можете выйти из профиля, пока находитесь в активной поездке!');
@@ -569,5 +583,11 @@ document.addEventListener('DOMContentLoaded', () => app.init());
 document.addEventListener('click', (e) => {
     if (!e.target.closest('.custom-select')) {
         document.querySelectorAll('.custom-select').forEach(el => el.classList.remove('open'));
+    }
+    if (!e.target.closest('#combo-departure') && !e.target.closest('#combo-destination')) {
+        const d1 = document.getElementById('options-departure');
+        const d2 = document.getElementById('options-destination');
+        if (d1) d1.style.display = 'none';
+        if (d2) d2.style.display = 'none';
     }
 });
