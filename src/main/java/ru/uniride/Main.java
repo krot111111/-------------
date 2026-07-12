@@ -17,7 +17,7 @@ public class Main {
         Javalin app = Javalin.create(config -> {
             // Serve static files from the root directory so we don't have to move index.html
             config.staticFiles.add(System.getProperty("user.dir"), Location.EXTERNAL);
-        }).start(3000);
+        }).start(3001);
 
         System.out.println("Java Сервер запущен на порту 3000");
 

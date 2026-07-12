@@ -3,7 +3,7 @@
     --bg-body: #000000;
     --bg-surface: #121212;
     --text-main: #ffffff;
-    --text-muted: #a1a1aa;
+    --text-muted: #cbd5e1;
     --border-color: #27272a;
     --primary: #facc15; /* Yellow Accent */
     --primary-hover: #eab308;
@@ -153,11 +153,12 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 }
 
 .btn-danger-outline {
+    background-color: #000000;
     color: var(--danger);
-    border-color: #fca5a5;
+    border-color: var(--danger);
 }
 .btn-danger-outline:hover {
-    background-color: #fef2f2;
+    background-color: #450a0a;
     border-color: var(--danger);
 }
 
@@ -240,6 +241,27 @@ select.form-control {
     padding-right: 32px;
 }
 
+/* Custom Select */
+.custom-select { position: relative; width: 100%; user-select: none; }
+.custom-select-trigger { 
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; padding: 10px 12px; border: 1px solid var(--border-color);
+    border-radius: var(--radius); background-color: var(--bg-surface);
+    cursor: pointer; font-size: 0.95rem; color: var(--text-main); transition: border-color 0.2s;
+}
+.custom-select-trigger .card-chevron { transform: rotate(90deg); transition: 0.2s; margin-left: 8px; }
+.custom-select.open .card-chevron { transform: rotate(-90deg); }
+.custom-select.open .custom-select-trigger { border-color: var(--primary); }
+.custom-select-options {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius); z-index: 1000; display: none;
+    max-height: 200px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.custom-select.open .custom-select-options { display: block; }
+.custom-option { padding: 10px 12px; cursor: pointer; transition: 0.1s; }
+.custom-option:hover { background: var(--border-color); }
+
 /* Alerts */
 .alert {
     padding: 12px 16px;
@@ -250,12 +272,12 @@ select.form-control {
 .alert-info {
     background-color: var(--info-bg);
     border-color: var(--info-border);
-    color: #0369a1;
+    color: #bfdbfe;
 }
 .alert-warning {
     background-color: var(--warning-bg);
     border-color: var(--warning-border);
-    color: #854d0e;
+    color: #fde047;
 }
 .alert-success {
     background-color: #dcfce7;

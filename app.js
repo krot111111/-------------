@@ -127,6 +127,23 @@ const app = {
         document.getElementById(modalId).classList.remove('active');
     },
 
+    toggleSelect(id) {
+        document.querySelectorAll('.custom-select').forEach(el => {
+            if (el.id !== 'custom-' + id) el.classList.remove('open');
+        });
+        document.getElementById('custom-' + id).classList.toggle('open');
+    },
+
+    selectOption(id, value, label = value) {
+        document.getElementById('create-' + id).value = value;
+        
+        const textSpan = document.getElementById(id + '-text');
+        textSpan.textContent = label;
+        textSpan.classList.remove('text-muted');
+
+        document.getElementById('custom-' + id).classList.remove('open');
+    },
+
     logout() {
         if (this.isUserInActiveRide()) {
             this.showToast('Вы не можете выйти из профиля, пока находитесь в активной поездке!');
@@ -203,12 +220,14 @@ const app = {
 
         // Toggle Create Ride Button
         const btnCreate = document.getElementById('btn-create-ride');
-        if (btnCreate) {
-            if (this.isUserInActiveRide()) {
-                btnCreate.style.display = 'none';
-            } else {
-                btnCreate.style.display = 'flex';
-            }
+        const sidebarActive = document.getElementById('sidebar-active-ride');
+        
+        if (this.isUserInActiveRide()) {
+            if (btnCreate) btnCreate.style.display = 'none';
+            if (sidebarActive) sidebarActive.style.display = 'block';
+        } else {
+            if (btnCreate) btnCreate.style.display = 'flex';
+            if (sidebarActive) sidebarActive.style.display = 'none';
         }
 
         this.renderFeed();
@@ -333,6 +352,15 @@ const app = {
         );
     },
 
+    getActiveRideId() {
+        if (!state.currentUser) return null;
+        const ride = state.rides.find(r => 
+            (r.status === 'ACTIVE' || r.status === 'FULL') && 
+            r.participants.some(p => p.id === state.currentUser.id)
+        );
+        return ride ? ride.id : null;
+    },
+
     // Ride Actions
     createRide() {
         if (this.isUserInActiveRide()) {
@@ -413,16 +441,19 @@ const app = {
         if (!ride) return;
 
         const isCreator = (ride.creator === state.currentUser.id);
+        const modalText = isCreator ? 
+            'Вы создатель поездки. При вашем выходе поездка будет полностью отменена. Продолжить?' : 
+            'Вы уверены, что хотите выйти из группы?';
+        
+        document.getElementById('leave-modal-text').textContent = modalText;
+        this.showModal('confirm-leave-modal');
+    },
 
-        if (isCreator) {
-            if (!confirm('Вы создатель поездки. При вашем выходе поездка будет полностью отменена. Продолжить?')) {
-                return;
-            }
-        } else {
-            if (!confirm('Вы уверены, что хотите выйти из группы?')) {
-                return;
-            }
-        }
+    executeLeaveRide() {
+        const ride = state.rides.find(r => r.id === state.activeRideId);
+        if (!ride) return;
+
+        const isCreator = (ride.creator === state.currentUser.id);
 
         socket.emit('leaveRide', {
             rideId: state.activeRideId,
@@ -432,6 +463,7 @@ const app = {
 
         state.activeRideId = null;
 
+        this.closeModal('confirm-leave-modal');
         this.showToast(isCreator ? 'Поездка отменена' : 'Вы покинули поездку');
         this.navigate('dashboard');
     },
@@ -533,3 +565,9 @@ const app = {
 
 // Start
 document.addEventListener('DOMContentLoaded', () => app.init());
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.custom-select')) {
+        document.querySelectorAll('.custom-select').forEach(el => el.classList.remove('open'));
+    }
+});
