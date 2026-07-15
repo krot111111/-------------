@@ -5,6 +5,7 @@ import io.javalin.http.staticfiles.Location;
 import io.javalin.websocket.WsContext;
 
 import java.sql.SQLException;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +14,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class Main {
     private static List<Ride> rides = new CopyOnWriteArrayList<>();
@@ -36,6 +39,13 @@ public class Main {
 
         System.out.println("Java Сервер запущен на порту 3000");
 
+        // Раз в минуту чистим поездки, у которых с назначенного времени прошло больше 40 минут
+        Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "ride-expiry");
+            t.setDaemon(true);
+            return t;
+        }).scheduleAtFixedRate(Main::expireOldRides, 1, 1, TimeUnit.MINUTES);
+
         app.ws("/socket", ws -> {
             ws.onConnect(ctx -> {
                 clients.add(ctx);
@@ -56,6 +66,7 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка: у вас уже есть активная поездка"));
                             return;
                         }
+                        req.rideData.scheduledAt = resolveScheduledAt(req.rideData.time);
                         rides.add(req.rideData);
                         System.out.println("Создана новая поездка: " + req.rideData.id);
                         broadcast("updateRides", rides);
@@ -125,7 +136,10 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Только организатор может перенести время поездки"));
                             return;
                         }
-                        target.time = LocalTime.parse(target.time).plusMinutes(5).toString();
+                        // Переносим настоящую дату-время (а не только строку) - так перенос
+                        // через полночь не ломает расчёт "прошло 40 минут" для авто-удаления
+                        target.scheduledAt = target.scheduledAt.plusMinutes(5);
+                        target.time = target.scheduledAt.toLocalTime().toString();
                         broadcast("updateRides", rides);
                     }
                     else if ("registerStudent".equals(req.type)) {
@@ -255,6 +269,28 @@ public class Main {
             ("ACTIVE".equals(r.status) || "FULL".equals(r.status)) &&
             r.participants.stream().anyMatch(p -> p.id.equals(userId))
         );
+    }
+
+    // Поездка хранит время только как "ЧЧ:мм" без даты. Если это время уже прошло больше
+    // часа назад - считаем, что имелось в виду завтра (та же эвристика, что и в таймере на клиенте).
+    private static LocalDateTime resolveScheduledAt(String timeStr) {
+        LocalTime time = LocalTime.parse(timeStr);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime scheduled = now.withHour(time.getHour()).withMinute(time.getMinute()).withSecond(0).withNano(0);
+        if (scheduled.isBefore(now.minusHours(1))) {
+            scheduled = scheduled.plusDays(1);
+        }
+        return scheduled;
+    }
+
+    // Удаляет поездки, с назначенного времени которых прошло больше 40 минут
+    private static void expireOldRides() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean changed = rides.removeIf(r -> r.scheduledAt != null && now.isAfter(r.scheduledAt.plusMinutes(40)));
+        if (changed) {
+            System.out.println("Удалены просроченные поездки (прошло больше 40 минут после начала)");
+            broadcast("updateRides", rides);
+        }
     }
 
     // Вызывается при отказе/отзыве доступа - если пользователь был организатором поездки,

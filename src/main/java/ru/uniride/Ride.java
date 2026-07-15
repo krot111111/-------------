@@ -1,8 +1,10 @@
 package ru.uniride;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -17,6 +19,12 @@ public class Ride {
     public Double lat;
     public Double lon;
     public List<User> participants = new ArrayList<>();
+
+    // Реальные дата+время начала (сервер сам вычисляет при создании/переносе) -
+    // нужны, чтобы корректно считать "прошло 40 минут", даже если перенос увёл время за полночь.
+    // Клиенту не отдаём - он ориентируется на строку time.
+    @JsonIgnore
+    public LocalDateTime scheduledAt;
 
     public Ride() {}
 
