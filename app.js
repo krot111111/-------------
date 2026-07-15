@@ -1018,16 +1018,17 @@ const app = {
                     if (!contactsHtml) contactsHtml = '<span class="text-muted">Нет контактов</span>';
                 }
 
-                // Управление участником - видит только организатор, и не для самого себя.
+                // Управление явкой: организатор отмечает попутчиков, попутчики - организатора.
                 // "Удалить" и отметка явки взаимоисключающие: до отправления убирать из поездки
                 // ещё есть смысл (явку рано отмечать), после отправления - наоборот (вступление уже
                 // заблокировано, убирать некого, актуальна только явка). Так на экране всегда максимум
                 // одна группа кнопок на участника, а не три сразу.
                 let deleteButtonHtml = '';
                 let attendanceHtml = '';
+                const pid = this.extractStudentId(p.id);
+                const rideStarted = this.hasRideStarted(ride);
                 if (isCreator && p.id !== ride.creator) {
-                    const pid = this.extractStudentId(p.id);
-                    if (this.hasRideStarted(ride)) {
+                    if (rideStarted) {
                         attendanceHtml = `
                             <div class="actions-row mt-2">
                                 <button class="btn btn-outline btn-sm" style="${!p.noShow ? 'color: var(--status-success-text); border-color: var(--status-success-text);' : ''}" onclick="app.markAttendance(${pid}, true)">Пришёл</button>
@@ -1037,6 +1038,13 @@ const app = {
                     } else {
                         deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0; border-color: transparent;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
                     }
+                } else if (!isCreator && p.id === ride.creator && rideStarted) {
+                    attendanceHtml = `
+                        <div class="actions-row mt-2">
+                            <button class="btn btn-outline btn-sm" style="${!p.noShow ? 'color: var(--status-success-text); border-color: var(--status-success-text);' : ''}" onclick="app.markAttendance(${pid}, true)">Пришёл</button>
+                            <button class="btn btn-outline btn-sm" style="${p.noShow ? 'color: var(--status-warning-text); border-color: var(--status-warning-text);' : ''}" onclick="app.markAttendance(${pid}, false)">Не пришёл</button>
+                        </div>
+                    `;
                 }
 
                 html += `
