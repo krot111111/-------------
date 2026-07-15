@@ -213,7 +213,8 @@ public class Main {
                         broadcastRides();
                     }
                     // Отметка "пришёл/не пришёл" - можно переключать сколько угодно раз, пока поездка
-                    // активна. В счётчик неявок студента это попадает только один раз, при авто-удалении
+                    // активна. Организатор отмечает попутчиков, а попутчики могут отметить организатора.
+                    // В счётчик неявок студента это попадает только один раз, при авто-удалении
                     // поездки (expireOldRides) - здесь только локальное состояние конкретной поездки.
                     else if ("markAttendance".equals(req.type)) {
                         Student student = requireStudent(ctx, req.studentToken);
@@ -232,15 +233,30 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
                             return;
                         }
-                        if (!target.creator.equals(myId)) {
-                            ctx.send(new SocketResponse("errorMsg", "Только организатор может отмечать явку"));
-                            return;
-                        }
                         if (req.studentId == null || req.attended == null) {
                             ctx.send(new SocketResponse("errorMsg", "Не указан участник или отметка"));
                             return;
                         }
+                        if (target.scheduledAt != null && LocalDateTime.now().isBefore(target.scheduledAt)) {
+                            ctx.send(new SocketResponse("errorMsg", "Явку можно отмечать только после начала поездки"));
+                            return;
+                        }
+
                         String targetId = "student-" + req.studentId;
+                        boolean requesterIsCreator = target.creator.equals(myId);
+                        boolean targetIsCreator = target.creator.equals(targetId);
+                        boolean requesterIsParticipant = target.participants.stream().anyMatch(p -> p.id.equals(myId));
+
+                        if (targetIsCreator) {
+                            if (requesterIsCreator || !requesterIsParticipant) {
+                                ctx.send(new SocketResponse("errorMsg", "Организатора могут отмечать только попутчики"));
+                                return;
+                            }
+                        } else if (!requesterIsCreator) {
+                            ctx.send(new SocketResponse("errorMsg", "Только организатор может отмечать явку участников"));
+                            return;
+                        }
+
                         User participant = target.participants.stream()
                             .filter(p -> p.id.equals(targetId))
                             .findFirst()
