@@ -211,6 +211,12 @@ const app = {
             const phoneNumber = document.getElementById('reg-phone').value.trim();
             const gradebookNumber = document.getElementById('reg-gradebook').value.trim();
             const password = document.getElementById('reg-password').value;
+            const passwordConfirm = document.getElementById('reg-password-confirm').value;
+
+            if (password !== passwordConfirm) {
+                this.showToast('Пароли не совпадают');
+                return;
+            }
 
             socket.emit('registerStudent', { firstName, lastName, groupNumber, phoneNumber, gradebookNumber, password });
             e.target.reset();
