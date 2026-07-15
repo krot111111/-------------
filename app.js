@@ -1029,7 +1029,7 @@ const app = {
                 let attendanceHtml = '';
                 if (isCreator && p.id !== ride.creator) {
                     const pid = this.extractStudentId(p.id);
-                    deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
+                    deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0; border-color: transparent;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
                     if (this.hasRideStarted(ride)) {
                         attendanceHtml = `
                             <div class="actions-row mt-2">
