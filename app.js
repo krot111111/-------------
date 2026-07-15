@@ -610,17 +610,12 @@ const app = {
     },
 
     saveProfile() {
-        const name = document.getElementById('profile-name').value.trim();
+        // Имя и фамилия задаются при регистрации и здесь не редактируются -
+        // state.currentUser.name не трогаем, сохраняем только контакты
         const phone = document.getElementById('profile-phone').value.trim();
         const tg = document.getElementById('profile-tg').value.trim();
         const vk = document.getElementById('profile-vk').value.trim();
 
-        if (!name) {
-            this.showToast('Укажите ваше имя');
-            return;
-        }
-
-        state.currentUser.name = name;
         state.currentUser.phone = phone;
         state.currentUser.tg = tg;
         state.currentUser.vk = vk;
@@ -1024,12 +1019,14 @@ const app = {
                 }
 
                 // Управление участником - видит только организатор, и не для самого себя.
-                // Кнопка удаления - в шапке карточки, напротив имени; явка (если применимо) - отдельной строкой ниже
+                // "Удалить" и отметка явки взаимоисключающие: до отправления убирать из поездки
+                // ещё есть смысл (явку рано отмечать), после отправления - наоборот (вступление уже
+                // заблокировано, убирать некого, актуальна только явка). Так на экране всегда максимум
+                // одна группа кнопок на участника, а не три сразу.
                 let deleteButtonHtml = '';
                 let attendanceHtml = '';
                 if (isCreator && p.id !== ride.creator) {
                     const pid = this.extractStudentId(p.id);
-                    deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0; border-color: transparent;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
                     if (this.hasRideStarted(ride)) {
                         attendanceHtml = `
                             <div class="actions-row mt-2">
@@ -1037,6 +1034,8 @@ const app = {
                                 <button class="btn btn-outline btn-sm" style="${p.noShow ? 'color: var(--status-warning-text); border-color: var(--status-warning-text);' : ''}" onclick="app.markAttendance(${pid}, false)">Не пришёл</button>
                             </div>
                         `;
+                    } else {
+                        deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0; border-color: transparent;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
                     }
                 }
 

@@ -69,7 +69,7 @@
                 <form id="form-profile" onsubmit="event.preventDefault(); app.saveProfile();">
                     <div class="form-group">
                         <label>Имя и Фамилия</label>
-                        <input type="text" id="profile-name" class="form-control" required placeholder="Иван Иванов">
+                        <input type="text" id="profile-name" class="form-control" readonly style="opacity: 0.7; cursor: not-allowed;">
                     </div>
                     <div class="form-group">
                         <label>Номер телефона</label>
@@ -348,6 +348,7 @@
                                 <div class="custom-select-options">
                                     <div class="custom-option" onclick="app.selectOption('seats', '1', '1 место (поедем вдвоем)')">1 место (поедем вдвоем)</div>
                                     <div class="custom-option" onclick="app.selectOption('seats', '2', '2 места (поедем втроем)')">2 места (поедем втроем)</div>
+                                    <div class="custom-option" onclick="app.selectOption('seats', '3', '3 места (поедем вчетвером)')">3 места (поедем вчетвером)</div>
                                 </div>
                             </div>
                             <input type="hidden" id="create-seats" value="2" required>

@@ -33,7 +33,10 @@ public class Ride {
         if (departure == null || departure.trim().isEmpty()) return false;
         if (destination == null || destination.trim().isEmpty()) return false;
         if (time == null || time.trim().isEmpty()) return false;
-        if (totalSeats == null || totalSeats < 1) return false;
+        // Верхняя граница - 3 (значит всего в поездке максимум 4 человека вместе с организатором),
+        // соответствует тому, что предлагает интерфейс. Без этого можно было прислать
+        // произвольно большое число мест в обход выпадающего списка.
+        if (totalSeats == null || totalSeats < 1 || totalSeats > 3) return false;
         return true;
     }
 }
