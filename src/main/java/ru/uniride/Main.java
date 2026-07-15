@@ -24,6 +24,10 @@ public class Main {
     // поэтому переподключение сокета (обрыв связи, рестарт сервера) не сбрасывает авторизацию.
     private static Map<String, WsContext> adminSessions = new ConcurrentHashMap<>();
 
+    // Соединение -> id студента, который на том конце. Нужно, чтобы решать, кому
+    // показывать реальные контакты/координаты поездки, а кому - урезанную версию.
+    private static Map<WsContext, Long> ctxStudent = new ConcurrentHashMap<>();
+
     // Реальные значения задаются переменными окружения ADMIN_USERNAME/ADMIN_PASSWORD -
     // здесь только заглушки, чтобы в публичном репозитории не оказался настоящий пароль
     private static final String ADMIN_USERNAME = System.getenv().getOrDefault("ADMIN_USERNAME", "admin");
@@ -49,7 +53,9 @@ public class Main {
         app.ws("/socket", ws -> {
             ws.onConnect(ctx -> {
                 clients.add(ctx);
-                ctx.send(new SocketResponse("updateRides", rides));
+                // Личность ещё не известна (клиент пришлёт identify следующим сообщением) -
+                // до этого момента отдаём версию без чужих контактов и координат
+                ctx.send(new SocketResponse("updateRides", visibleRidesFor(null)));
                 System.out.println("Клиент подключился: " + ctx.getSessionId());
             });
 
@@ -57,26 +63,70 @@ public class Main {
                 try {
                     SocketRequest req = ctx.messageAsClass(SocketRequest.class);
 
-                    if ("createRide".equals(req.type)) {
-                        if (req.rideData == null || !req.rideData.isValid()) {
-                            ctx.send(new SocketResponse("errorMsg", "Ошибка сервера: переданы пустые или некорректные данные поездки"));
+                    if ("identify".equals(req.type)) {
+                        // Клиент называет себя токеном сразу после подключения - без этого
+                        // сервер не знает, кому можно показывать реальные контакты/координаты
+                        if (requireStudent(ctx, req.studentToken) != null) {
+                            ctx.send(new SocketResponse("updateRides", visibleRidesFor(ctxStudent.get(ctx))));
+                        }
+                    }
+                    else if ("createRide".equals(req.type)) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
                             return;
                         }
-                        if (isUserInActiveRide(req.rideData.creator)) {
+                        String myId = "student-" + student.id;
+
+                        if (req.rideData == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка сервера: переданы пустые данные поездки"));
+                            return;
+                        }
+                        // Личность создателя и первого участника берём из токена, а не из тела запроса -
+                        // иначе можно было бы создать поездку от чужого имени
+                        req.rideData.creator = myId;
+                        User creatorParticipant;
+                        if (req.rideData.participants != null && !req.rideData.participants.isEmpty()) {
+                            creatorParticipant = req.rideData.participants.get(0);
+                        } else {
+                            creatorParticipant = new User();
+                            req.rideData.participants = new ArrayList<>();
+                            req.rideData.participants.add(creatorParticipant);
+                        }
+                        creatorParticipant.id = myId;
+                        creatorParticipant.name = student.firstName + " " + student.lastName;
+
+                        if (!req.rideData.isValid()) {
+                            ctx.send(new SocketResponse("errorMsg", "Ошибка сервера: переданы некорректные данные поездки"));
+                            return;
+                        }
+                        if (isUserInActiveRide(myId)) {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка: у вас уже есть активная поездка"));
                             return;
                         }
                         req.rideData.scheduledAt = resolveScheduledAt(req.rideData.time);
                         rides.add(req.rideData);
                         System.out.println("Создана новая поездка: " + req.rideData.id);
-                        broadcast("updateRides", rides);
-                    } 
+                        broadcastRides();
+                    }
                     else if ("joinRide".equals(req.type)) {
-                        if (req.user == null || req.user.id == null) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
+                            return;
+                        }
+                        String myId = "student-" + student.id;
+
+                        if (req.user == null) {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка: некорректные данные пользователя"));
                             return;
                         }
-                        if (isUserInActiveRide(req.user.id)) {
+                        // Личность - строго из токена; телефон/tg/vk берём из запроса (это личные
+                        // контакты профиля, сервер их отдельно не хранит)
+                        req.user.id = myId;
+                        req.user.name = student.firstName + " " + student.lastName;
+
+                        if (isUserInActiveRide(myId)) {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка: вы уже состоите в другой поездке"));
                             return;
                         }
@@ -90,7 +140,7 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
                             return;
                         }
-                        if (target.participants.stream().anyMatch(p -> p.id.equals(req.user.id))) {
+                        if (target.participants.stream().anyMatch(p -> p.id.equals(myId))) {
                             ctx.send(new SocketResponse("errorMsg", "Вы уже состоите в этой поездке"));
                             return;
                         }
@@ -103,26 +153,40 @@ public class Main {
                         if (target.participants.size() > target.totalSeats) {
                             target.status = "FULL";
                         }
-                        broadcast("updateRides", rides);
+                        broadcastRides();
                     }
                     else if ("leaveRide".equals(req.type)) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
+                            return;
+                        }
+                        String myId = "student-" + student.id;
+
                         Ride target = rides.stream()
                             .filter(r -> r.id.equals(req.rideId))
                             .findFirst()
                             .orElse(null);
-                        
+
                         if (target != null) {
                             // Кто создатель, определяем сами - клиенту не доверяем
-                            if (target.creator.equals(req.userId)) {
+                            if (target.creator.equals(myId)) {
                                 rides.remove(target);
                             } else {
-                                target.participants.removeIf(p -> p.id.equals(req.userId));
+                                target.participants.removeIf(p -> p.id.equals(myId));
                                 target.status = "ACTIVE";
                             }
-                            broadcast("updateRides", rides);
+                            broadcastRides();
                         }
                     }
                     else if ("postponeRide".equals(req.type)) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
+                            return;
+                        }
+                        String myId = "student-" + student.id;
+
                         Ride target = rides.stream()
                             .filter(r -> r.id.equals(req.rideId))
                             .findFirst()
@@ -132,7 +196,7 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
                             return;
                         }
-                        if (!target.creator.equals(req.userId)) {
+                        if (!target.creator.equals(myId)) {
                             ctx.send(new SocketResponse("errorMsg", "Только организатор может перенести время поездки"));
                             return;
                         }
@@ -140,7 +204,7 @@ public class Main {
                         // через полночь не ломает расчёт "прошло 40 минут" для авто-удаления
                         target.scheduledAt = target.scheduledAt.plusMinutes(5);
                         target.time = target.scheduledAt.toLocalTime().toString();
-                        broadcast("updateRides", rides);
+                        broadcastRides();
                     }
                     else if ("registerStudent".equals(req.type)) {
                         String firstName = req.firstName == null ? "" : req.firstName.trim();
@@ -172,6 +236,7 @@ public class Main {
                             }
                             throw e;
                         }
+                        ctxStudent.put(ctx, session.student.id);
                         ctx.send(new SocketResponse("registrationResult", session));
                         notifyAdmins();
                         System.out.println("Новая заявка на регистрацию: " + session.student.id);
@@ -190,14 +255,11 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Неверный номер зачётки или пароль"));
                             return;
                         }
+                        ctxStudent.put(ctx, session.student.id);
                         ctx.send(new SocketResponse("loginResult", session));
                     }
                     else if ("checkStatus".equals(req.type)) {
-                        if (req.studentToken == null || req.studentToken.isEmpty()) {
-                            ctx.send(new SocketResponse("sessionInvalid", null));
-                            return;
-                        }
-                        Student student = StudentRepository.findBySessionToken(req.studentToken);
+                        Student student = requireStudent(ctx, req.studentToken);
                         if (student == null) {
                             ctx.send(new SocketResponse("sessionInvalid", null));
                             return;
@@ -259,6 +321,7 @@ public class Main {
 
             ws.onClose(ctx -> {
                 clients.remove(ctx);
+                ctxStudent.remove(ctx);
                 System.out.println("Клиент отключился: " + ctx.getSessionId());
             });
         });
@@ -289,7 +352,7 @@ public class Main {
         boolean changed = rides.removeIf(r -> r.scheduledAt != null && now.isAfter(r.scheduledAt.plusMinutes(40)));
         if (changed) {
             System.out.println("Удалены просроченные поездки (прошло больше 40 минут после начала)");
-            broadcast("updateRides", rides);
+            broadcastRides();
         }
     }
 
@@ -309,16 +372,62 @@ public class Main {
         }
         rides.removeAll(toRemove);
         if (changed) {
-            broadcast("updateRides", rides);
+            broadcastRides();
         }
     }
 
-    private static void broadcast(String event, Object data) {
+    // Каждому подключению рассылается своя версия списка: в чужих поездках
+    // (где получатель не участник) контакты и точка сбора обнулены
+    private static void broadcastRides() {
         clients.forEach(client -> {
             if (client.session.isOpen()) {
-                client.send(new SocketResponse(event, data));
+                client.send(new SocketResponse("updateRides", visibleRidesFor(ctxStudent.get(client))));
             }
         });
+    }
+
+    // Возвращает список поездок для конкретного студента: в его собственных поездках -
+    // полные данные, в остальных - без контактов участников и без координат точки сбора
+    private static List<Ride> visibleRidesFor(Long studentId) {
+        String myId = studentId == null ? null : "student-" + studentId;
+        List<Ride> result = new ArrayList<>();
+        for (Ride r : rides) {
+            boolean isMine = myId != null && (myId.equals(r.creator) || r.participants.stream().anyMatch(p -> myId.equals(p.id)));
+            result.add(isMine ? r : redacted(r));
+        }
+        return result;
+    }
+
+    // Копия поездки только с полями, безопасными для показа не-участнику
+    private static Ride redacted(Ride original) {
+        Ride copy = new Ride();
+        copy.id = original.id;
+        copy.creator = original.creator;
+        copy.departure = original.departure;
+        copy.destination = original.destination;
+        copy.time = original.time;
+        copy.totalSeats = original.totalSeats;
+        copy.status = original.status;
+        // lat/lon намеренно не копируем - точку сбора видят только участники
+        for (User p : original.participants) {
+            User redactedUser = new User();
+            redactedUser.id = p.id;
+            redactedUser.name = p.name;
+            // phone/tg/vk намеренно не копируем - контакты видят только участники
+            copy.participants.add(redactedUser);
+        }
+        return copy;
+    }
+
+    // Находит студента по токену сессии и запоминает, какое соединение ему принадлежит -
+    // это единственный источник личности для действий с поездками (клиенту не доверяем)
+    private static Student requireStudent(WsContext ctx, String token) throws SQLException {
+        if (token == null || token.isEmpty()) return null;
+        Student student = StudentRepository.findBySessionToken(token);
+        if (student != null) {
+            ctxStudent.put(ctx, student.id);
+        }
+        return student;
     }
 
     private static void notifyAdmins() {

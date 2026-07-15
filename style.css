@@ -1,11 +1,11 @@
 :root {
-    /* Colors - High Contrast Dark Theme */
+    /* Colors - High Contrast Dark Theme (по умолчанию) */
     --bg-body: #000000;
     --bg-surface: #121212;
     --text-main: #ffffff;
     --text-muted: #cbd5e1;
     --border-color: #27272a;
-    --primary: #facc15; /* Yellow Accent */
+    --primary: #facc15; /* Yellow Accent - для заливок (кнопки/бейджи), где сверху всегда чёрный текст */
     --primary-hover: #eab308;
     --danger: #ef4444;
     --danger-hover: #dc2626;
@@ -15,12 +15,48 @@
     --warning-border: #b45309;
     --info-bg: #1e3a8a;
     --info-border: #3b82f6;
-    
+
+    /* Варианты для случаев, когда цвет - это САМ ТЕКСТ на фоне страницы/карточки.
+       Жёлтый/красный/зелёный, идеальные на чёрном, на белом фоне почти не читаются -
+       поэтому это отдельные переменные, а не переиспользование --primary и т.д. */
+    --accent-text: var(--primary);       /* акцентный текст/бордер вместо чистого --primary */
+    --bg-chip: #27272a;                  /* тёмная плашка (бейдж времени, блок активной поездки) */
+    --bg-map-placeholder: #333333;       /* фон под картой, пока она не загрузилась */
+    --info-text: #bfdbfe;                /* текст внутри .alert-info */
+    --warning-alert-text: #fde047;       /* текст внутри .alert-warning */
+    --danger-text: var(--danger);        /* красный текст/бордер на фоне страницы */
+    --danger-outline-hover-bg: #450a0a;
+    --status-success-text: var(--success);
+    --status-warning-text: var(--warning);
+
     /* Metrics */
     --radius: 8px;
     --radius-lg: 12px;
     --transition: 0.2s ease-in-out;
     --max-width: 1000px;
+}
+
+/* Светлая тема - переключается атрибутом data-theme на <html> (см. app.js: toggleTheme) */
+:root[data-theme="light"] {
+    --bg-body: #f4f4f5;
+    --bg-surface: #ffffff;
+    --text-main: #18181b;
+    --text-muted: #52525b;
+    --border-color: #e4e4e7;
+    --warning-bg: #fffbeb;
+    --warning-border: #b45309;
+    --info-bg: #eff6ff;
+    --info-border: #3b82f6;
+
+    --accent-text: #a16207;              /* тёмный янтарь вместо жёлтого - читается на белом */
+    --bg-chip: #fef9c3;                  /* бледно-жёлтая плашка вместо тёмной */
+    --bg-map-placeholder: #e4e4e7;
+    --info-text: #1e40af;
+    --warning-alert-text: #92400e;
+    --danger-text: #dc2626;
+    --danger-outline-hover-bg: #fee2e2;
+    --status-success-text: #15803d;
+    --status-warning-text: #92400e;
 }
 
 * {
@@ -40,6 +76,7 @@ body {
     color: var(--text-main);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+    transition: background-color 0.2s, color 0.2s;
 }
 
 /* Layout Core */
@@ -158,13 +195,13 @@ h3 { font-size: 1.1rem; font-weight: 600; }
 }
 
 .btn-danger-outline {
-    background-color: #000000;
-    color: var(--danger);
-    border-color: var(--danger);
+    background-color: var(--bg-surface);
+    color: var(--danger-text);
+    border-color: var(--danger-text);
 }
 .btn-danger-outline:hover {
-    background-color: #450a0a;
-    border-color: var(--danger);
+    background-color: var(--danger-outline-hover-bg);
+    border-color: var(--danger-text);
 }
 
 .btn-danger {
@@ -218,15 +255,7 @@ label {
 
 .form-control:focus {
     outline: none;
-    border-color: var(--primary);
-}
-
-select.form-control {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    padding-right: 32px;
+    border-color: var(--accent-text);
 }
 
 /* Custom Select */
@@ -239,7 +268,7 @@ select.form-control {
 }
 .custom-select-trigger .card-chevron { transform: rotate(90deg); transition: 0.2s; margin-left: 8px; }
 .custom-select.open .card-chevron { transform: rotate(-90deg); }
-.custom-select.open .custom-select-trigger { border-color: var(--primary); }
+.custom-select.open .custom-select-trigger { border-color: var(--accent-text); }
 .custom-select-options {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0;
     background: var(--bg-surface); border: 1px solid var(--border-color);
@@ -260,12 +289,12 @@ select.form-control {
 .alert-info {
     background-color: var(--info-bg);
     border-color: var(--info-border);
-    color: #bfdbfe;
+    color: var(--info-text);
 }
 .alert-warning {
     background-color: var(--warning-bg);
     border-color: var(--warning-border);
-    color: #fde047;
+    color: var(--warning-alert-text);
 }
 
 /* Auth View */
@@ -360,8 +389,8 @@ select.form-control {
 }
 
 .ride-time-badge {
-    background: #27272a;
-    color: var(--primary);
+    background: var(--bg-chip);
+    color: var(--accent-text);
     border: 1px solid var(--border-color);
     padding: 4px 8px;
     border-radius: 4px;
@@ -478,7 +507,7 @@ select.form-control {
 }
 .contact-item:last-child { border-bottom: none; }
 .contact-name { font-weight: 600; margin-bottom: 4px; }
-.contact-role { font-size: 0.8rem; color: var(--primary); font-weight: 600; margin-left: 8px;}
+.contact-role { font-size: 0.8rem; color: var(--accent-text); font-weight: 600; margin-left: 8px;}
 .contact-links {
     display: flex;
     flex-wrap: wrap;   /* кнопки контактов переносятся, а не вылезают за карточку */
@@ -486,7 +515,7 @@ select.form-control {
     font-size: 0.9rem;
 }
 .contact-links a {
-    color: var(--primary);
+    color: var(--accent-text);
     text-decoration: none;
 }
 .contact-links a:hover { text-decoration: underline; }
@@ -517,6 +546,56 @@ select.form-control {
 }
 .toast.show {
     transform: translateX(-50%) translateY(0);
+}
+
+/* Theme Toggle */
+.theme-toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+}
+.theme-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+.theme-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.theme-switch-slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background-color: var(--border-color);
+    border-radius: 999px;
+    transition: background-color 0.2s;
+}
+.theme-switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    top: 3px;
+    background-color: #ffffff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.theme-switch input:checked + .theme-switch-slider {
+    background-color: var(--primary);
+}
+.theme-switch input:checked + .theme-switch-slider::before {
+    transform: translateX(20px);
 }
 
 /* Empty State */

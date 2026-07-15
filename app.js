@@ -35,6 +35,12 @@ const socket = {
             while (this.messageQueue.length > 0) {
                 ws.send(this.messageQueue.shift());
             }
+            // Называем себя сразу после подключения - иначе до первой периодической
+            // проверки сервер не знает, кому можно показывать реальные контакты/координаты
+            const token = state.currentUser?.sessionToken || state.pendingStudent?.sessionToken;
+            if (token) {
+                this.emit('identify', { studentToken: token });
+            }
         };
         ws.onclose = () => {
             setTimeout(() => this.connect(), 1000);
@@ -42,9 +48,10 @@ const socket = {
     },
     emit(event, data) {
         let msg = { type: event };
-        if (event === 'createRide') msg.rideData = data;
-        else if (event === 'joinRide') { msg.rideId = data.rideId; msg.user = data.user; }
-        else if (event === 'leaveRide' || event === 'postponeRide') { msg.rideId = data.rideId; msg.userId = data.userId; }
+        if (event === 'identify') { msg.studentToken = data.studentToken; }
+        else if (event === 'createRide') { msg.rideData = data.rideData; msg.studentToken = data.studentToken; }
+        else if (event === 'joinRide') { msg.rideId = data.rideId; msg.user = data.user; msg.studentToken = data.studentToken; }
+        else if (event === 'leaveRide' || event === 'postponeRide') { msg.rideId = data.rideId; msg.studentToken = data.studentToken; }
         else if (event === 'registerStudent') { msg.firstName = data.firstName; msg.lastName = data.lastName; msg.groupNumber = data.groupNumber; msg.phoneNumber = data.phoneNumber; msg.gradebookNumber = data.gradebookNumber; msg.password = data.password; }
         else if (event === 'studentLogin') { msg.gradebookNumber = data.gradebookNumber; msg.password = data.password; }
         else if (event === 'checkStatus') { msg.studentToken = data.studentToken; }
@@ -146,6 +153,7 @@ const app = {
 
     init() {
         this.bindAuthEvents(); // Привязываем события для новых окон авторизации
+        this.initTheme(); // Тема уже применена инлайн-скриптом в <head> - тут просто синхронизируем переключатель
 
         const savedUser = localStorage.getItem('uniride_user');
         const savedPending = localStorage.getItem('uniride_pending');
@@ -225,6 +233,27 @@ const app = {
 
             socket.emit('adminLogin', { adminUsername, adminPassword });
         });
+    },
+
+    // Тема (свет/тьма)
+    initTheme() {
+        const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+        const checkbox = document.getElementById('theme-toggle');
+        if (checkbox) checkbox.checked = theme === 'dark';
+        this.updateThemeColorMeta(theme);
+    },
+
+    toggleTheme() {
+        const checkbox = document.getElementById('theme-toggle');
+        const theme = checkbox && checkbox.checked ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('uniride_theme', theme);
+        this.updateThemeColorMeta(theme);
+    },
+
+    updateThemeColorMeta(theme) {
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'dark' ? '#000000' : '#f4f4f5');
     },
 
     // UI Navigation & Utilities
@@ -803,8 +832,8 @@ const app = {
             lon: this.currentLon
         };
 
-        // Send to Server
-        socket.emit('createRide', newRide);
+        // Send to Server (личность/creator сервер берёт из studentToken, а не из этого объекта)
+        socket.emit('createRide', { rideData: newRide, studentToken: state.currentUser.sessionToken });
         
         this.closeModal('create-ride-modal');
         this.showToast('Поездка создана!');
@@ -843,7 +872,8 @@ const app = {
         this.closeModal('confirm-join-modal');
         socket.emit('joinRide', {
             rideId: state.activeRideId,
-            user: state.currentUser
+            user: state.currentUser,
+            studentToken: state.currentUser.sessionToken
         });
         // We do not modify local state directly. We wait for 'updateRides' from server.
         this.showToast('Запрос отправлен...');
@@ -870,7 +900,7 @@ const app = {
 
         socket.emit('leaveRide', {
             rideId: state.activeRideId,
-            userId: state.currentUser.id
+            studentToken: state.currentUser.sessionToken
         });
 
         state.activeRideId = null;
@@ -881,7 +911,7 @@ const app = {
     },
 
     postponeRide() {
-        socket.emit('postponeRide', { rideId: state.activeRideId, userId: state.currentUser.id });
+        socket.emit('postponeRide', { rideId: state.activeRideId, studentToken: state.currentUser.sessionToken });
         this.showToast('Время начала перенесено на 5 минут');
     },
 
@@ -903,7 +933,7 @@ const app = {
             <h2>${ride.departure} → ${ride.destination}</h2>
             <div style="margin-bottom: 16px;">
                 <span class="ride-time-badge" style="font-size: 1rem; padding: 6px 12px; background: var(--primary); color:#000;">Время: ${ride.time}</span>
-                <span style="margin-left:12px; font-weight:600; color: ${isFull ? 'var(--success)' : 'var(--warning)'}">${isFull ? 'Группа собрана' : 'Идет сбор группы'}</span>
+                <span style="margin-left:12px; font-weight:600; color: ${isFull ? 'var(--status-success-text)' : 'var(--status-warning-text)'}">${isFull ? 'Группа собрана' : 'Идет сбор группы'}</span>
             </div>
         `;
 
@@ -915,7 +945,7 @@ const app = {
             html += `<div class="contact-list">`;
             
             ride.participants.forEach(p => {
-                const role = p.id === ride.creator ? '<span class="contact-role" style="color:var(--primary); font-weight:bold;">(Организатор)</span>' : '';
+                const role = p.id === ride.creator ? '<span class="contact-role" style="color:var(--accent-text); font-weight:bold;">(Организатор)</span>' : '';
                 const you = p.id === state.currentUser.id ? ' <em style="color:var(--text-muted);">(Вы)</em>' : '';
                 
                 // Contacts

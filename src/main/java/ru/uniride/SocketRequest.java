@@ -6,9 +6,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class SocketRequest {
     public String type;
     public Ride rideData; // Used for createRide
-    public Long rideId;   // Used for joinRide/leaveRide
-    public User user;     // Used for joinRide
-    public String userId; // Used for leaveRide
+    public Long rideId;   // Used for joinRide/leaveRide/postponeRide
+    public User user;     // Used for joinRide (id/name are overwritten server-side from studentToken)
 
     // Registration & moderation
     public String firstName;    // Used for registerStudent
@@ -17,7 +16,9 @@ public class SocketRequest {
     public String phoneNumber;  // Used for registerStudent
     public String gradebookNumber; // Used for registerStudent/studentLogin
     public String password;     // Used for registerStudent/studentLogin
-    public String studentToken; // Used for checkStatus (identifies the session, not a guessable ID)
+    // Личность для действий с поездками (createRide/joinRide/leaveRide/postponeRide/identify)
+    // и для checkStatus - сервер доверяет только этому токену, не клиентским id/creator/userId
+    public String studentToken;
     public Long studentId;      // Used for approveStudent/rejectStudent/revokeAccess (admin-only actions)
     public String adminUsername; // Used for adminLogin
     public String adminPassword; // Used for adminLogin
