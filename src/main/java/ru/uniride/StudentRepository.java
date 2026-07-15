@@ -32,7 +32,7 @@ public class StudentRepository {
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 Student student = new Student(rs.getLong("id"), firstName, lastName, groupNumber, phoneNumber,
-                        gradebookNumber, "STUDENT", rs.getString("status"));
+                        gradebookNumber, "STUDENT", rs.getString("status"), 0);
                 return new AuthSession(student, sessionToken);
             }
         }
@@ -40,7 +40,7 @@ public class StudentRepository {
 
     public static AuthSession verifyLogin(String gradebookNumber, String password) throws SQLException {
         String sql = "SELECT id, first_name, last_name, group_number, phone_number, gradebook_number, role, status, " +
-                "password_hash, password_salt FROM students WHERE gradebook_number = ?";
+                "no_show_count, password_hash, password_salt FROM students WHERE gradebook_number = ?";
         try (Connection conn = Database.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, gradebookNumber);
@@ -71,8 +71,8 @@ public class StudentRepository {
     }
 
     public static Student findBySessionToken(String sessionToken) throws SQLException {
-        String sql = "SELECT id, first_name, last_name, group_number, phone_number, gradebook_number, role, status " +
-                "FROM students WHERE session_token = ?";
+        String sql = "SELECT id, first_name, last_name, group_number, phone_number, gradebook_number, role, status, " +
+                "no_show_count FROM students WHERE session_token = ?";
         try (Connection conn = Database.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, sessionToken);
@@ -84,8 +84,8 @@ public class StudentRepository {
     }
 
     public static List<Student> findAll() throws SQLException {
-        String sql = "SELECT id, first_name, last_name, group_number, phone_number, gradebook_number, role, status " +
-                "FROM students ORDER BY created_at ASC";
+        String sql = "SELECT id, first_name, last_name, group_number, phone_number, gradebook_number, role, status, " +
+                "no_show_count FROM students ORDER BY created_at ASC";
         List<Student> result = new ArrayList<>();
         try (Connection conn = Database.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -118,6 +118,18 @@ public class StudentRepository {
         }
     }
 
+    // Вызывается один раз при авто-удалении поездки для каждого, кто остался отмечен
+    // как "не пришёл" (см. Main.expireOldRides) - не бьёт по клику организатора,
+    // поэтому накрутить счётчик повторным переключением в рамках одной поездки нельзя
+    public static void incrementNoShow(long id) throws SQLException {
+        String sql = "UPDATE students SET no_show_count = no_show_count + 1 WHERE id = ?";
+        try (Connection conn = Database.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            ps.executeUpdate();
+        }
+    }
+
     private static Student mapRow(ResultSet rs) throws SQLException {
         return new Student(
                 rs.getLong("id"),
@@ -127,7 +139,8 @@ public class StudentRepository {
                 rs.getString("phone_number"),
                 rs.getString("gradebook_number"),
                 rs.getString("role"),
-                rs.getString("status")
+                rs.getString("status"),
+                rs.getInt("no_show_count")
         );
     }
 }

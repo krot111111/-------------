@@ -52,6 +52,8 @@ const socket = {
         else if (event === 'createRide') { msg.rideData = data.rideData; msg.studentToken = data.studentToken; }
         else if (event === 'joinRide') { msg.rideId = data.rideId; msg.user = data.user; msg.studentToken = data.studentToken; }
         else if (event === 'leaveRide' || event === 'postponeRide') { msg.rideId = data.rideId; msg.studentToken = data.studentToken; }
+        else if (event === 'markAttendance') { msg.rideId = data.rideId; msg.studentToken = data.studentToken; msg.studentId = data.studentId; msg.attended = data.attended; }
+        else if (event === 'kickParticipant') { msg.rideId = data.rideId; msg.studentToken = data.studentToken; msg.studentId = data.studentId; }
         else if (event === 'registerStudent') { msg.firstName = data.firstName; msg.lastName = data.lastName; msg.groupNumber = data.groupNumber; msg.phoneNumber = data.phoneNumber; msg.gradebookNumber = data.gradebookNumber; msg.password = data.password; }
         else if (event === 'studentLogin') { msg.gradebookNumber = data.gradebookNumber; msg.password = data.password; }
         else if (event === 'checkStatus') { msg.studentToken = data.studentToken; }
@@ -444,7 +446,15 @@ const app = {
     // Сюда попадаем только если сессия ещё валидна (иначе сервер прислал бы sessionInvalid),
     // так что здесь возможны только статусы PENDING (ждём) и APPROVED (переходим в личный кабинет)
     handleStatusUpdate(student) {
-        if (state.currentUser) return; // периодическая проверка активной сессии - всё ок, ничего не делаем
+        if (state.currentUser) {
+            // Периодическая проверка активной сессии - заодно подхватываем актуальный счётчик неявок
+            if (student.noShowCount !== state.currentUser.noShowCount) {
+                state.currentUser.noShowCount = student.noShowCount;
+                localStorage.setItem('uniride_user', JSON.stringify(state.currentUser));
+                if (state.currentView === 'view-profile') this.populateProfileForm();
+            }
+            return;
+        }
 
         if (student.status === 'APPROVED') {
             this.stopStatusPolling();
@@ -456,7 +466,8 @@ const app = {
                 studentId: student.id,
                 sessionToken,
                 name: `${student.firstName} ${student.lastName}`,
-                phone: '', tg: '', vk: ''
+                phone: '', tg: '', vk: '',
+                noShowCount: student.noShowCount || 0
             };
             localStorage.setItem('uniride_user', JSON.stringify(state.currentUser));
             this.showToast('Заявка одобрена! Укажите ваши контакты.');
@@ -479,7 +490,8 @@ const app = {
                 sessionToken: session.sessionToken,
                 name: `${student.firstName} ${student.lastName}`,
                 phone: student.phoneNumber || '',
-                tg: '', vk: ''
+                tg: '', vk: '',
+                noShowCount: student.noShowCount || 0
             };
             localStorage.setItem('uniride_user', JSON.stringify(state.currentUser));
             this.showToast(`Добро пожаловать, ${student.firstName}!`);
@@ -534,11 +546,16 @@ const app = {
             card.style.alignItems = 'center';
             card.style.gap = '8px';
 
+            const noShowLine = user.noShowCount > 0
+                ? `<div style="font-size: 0.85rem; color: ${user.noShowCount >= 3 ? 'var(--status-warning-text)' : 'var(--text-muted)'};">${user.noShowCount >= 3 ? '⚠ Частые неявки: ' : 'Неявки: '}${user.noShowCount}</div>`
+                : '';
+
             card.innerHTML = `
                 <div>
                     <div style="font-weight: 600;">${user.firstName} ${user.lastName}</div>
                     <div class="text-muted" style="font-size: 0.9rem;">Группа: ${user.groupNumber} · ${statusLabels[user.status] || user.status}</div>
                     <div class="text-muted" style="font-size: 0.85rem;">Тел: ${user.phoneNumber || '—'} · Зачётка: ${user.gradebookNumber || '—'}</div>
+                    ${noShowLine}
                 </div>
                 <div class="actions-row">
                     ${actionsHtml}
@@ -582,6 +599,13 @@ const app = {
             document.getElementById('btn-cancel-profile').style.display = 'block';
         } else {
             document.getElementById('btn-cancel-profile').style.display = 'none';
+        }
+
+        const noShowEl = document.getElementById('profile-no-show-count');
+        if (noShowEl) {
+            const count = state.currentUser.noShowCount || 0;
+            noShowEl.textContent = count;
+            noShowEl.style.color = count > 0 ? 'var(--status-warning-text)' : 'var(--status-success-text)';
         }
     },
 
@@ -775,6 +799,22 @@ const app = {
         }
     },
 
+    // Момент отправления как объект Date. Если время уже прошло больше часа назад -
+    // считаем, что имелось в виду завтра (та же эвристика, что и на сервере в resolveScheduledAt).
+    getRideDepartureDate(ride) {
+        const [hours, minutes] = ride.time.split(':').map(Number);
+        const target = new Date();
+        target.setHours(hours, minutes, 0, 0);
+        if (target - new Date() < -60 * 60 * 1000) {
+            target.setDate(target.getDate() + 1);
+        }
+        return target;
+    },
+
+    hasRideStarted(ride) {
+        return new Date() >= this.getRideDepartureDate(ride);
+    },
+
     updateRideCountdown() {
         const myRide = this.getMyActiveRide();
         const countdownEl = document.getElementById('sidebar-active-ride-countdown');
@@ -783,18 +823,7 @@ const app = {
             return;
         }
 
-        const [hours, minutes] = myRide.time.split(':').map(Number);
-        const target = new Date();
-        target.setHours(hours, minutes, 0, 0);
-        let diffMs = target - new Date();
-
-        // Если время уже прошло больше часа назад - значит поездка на следующий день,
-        // переносим цель на завтра. "Пора выезжать!" показываем только в течение часа после времени.
-        if (diffMs < -60 * 60 * 1000) {
-            target.setDate(target.getDate() + 1);
-            diffMs = target - new Date();
-        }
-
+        const diffMs = this.getRideDepartureDate(myRide) - new Date();
         countdownEl.textContent = diffMs <= 0 ? 'Пора выезжать!' : `До отправления: ${this.formatCountdown(diffMs)}`;
     },
 
@@ -860,6 +889,11 @@ const app = {
         const ride = state.rides.find(r => r.id === state.activeRideId);
         if (!ride) return;
 
+        if (this.hasRideStarted(ride)) {
+            this.showToast('Поездка уже началась, вступить нельзя');
+            return;
+        }
+
         if (ride.participants.find(p => p.id === state.currentUser.id)) {
             this.showToast('Вы уже участвуете');
             return;
@@ -921,6 +955,31 @@ const app = {
         this.showToast('Время начала перенесено на 5 минут');
     },
 
+    // "student-7" -> 7
+    extractStudentId(userId) {
+        return parseInt(String(userId).replace('student-', ''), 10);
+    },
+
+    markAttendance(studentId, attended) {
+        socket.emit('markAttendance', {
+            rideId: state.activeRideId,
+            studentToken: state.currentUser.sessionToken,
+            studentId,
+            attended
+        });
+    },
+
+    kickParticipant(studentId) {
+        if (confirm('Убрать этого участника из поездки?')) {
+            socket.emit('kickParticipant', {
+                rideId: state.activeRideId,
+                studentToken: state.currentUser.sessionToken,
+                studentId
+            });
+            this.showToast('Участник удалён из поездки');
+        }
+    },
+
     // Ride Details Render
     renderRideDetails() {
         const ride = state.rides.find(r => r.id === state.activeRideId);
@@ -944,8 +1003,6 @@ const app = {
         `;
 
         if (isParticipant) {
-            html += `<div class="alert alert-warning mb-3"><strong>Важно:</strong> Переведите деньги организатору ДО посадки в такси.</div>`;
-            
             // Show Contacts block
             html += `<h3>Участники и контакты</h3>`;
             html += `<div class="contact-list">`;
@@ -953,7 +1010,10 @@ const app = {
             ride.participants.forEach(p => {
                 const role = p.id === ride.creator ? '<span class="contact-role" style="color:var(--accent-text); font-weight:bold;">(Организатор)</span>' : '';
                 const you = p.id === state.currentUser.id ? ' <em style="color:var(--text-muted);">(Вы)</em>' : '';
-                
+                const noShowBadge = p.noShowCount > 0
+                    ? ` <span style="color: var(--status-warning-text); font-size: 0.8rem;">⚠ неявок: ${p.noShowCount}</span>`
+                    : '';
+
                 // Contacts
                 let contactsHtml = '';
                 if (p.id !== state.currentUser.id) { // Don't show links to self
@@ -963,12 +1023,33 @@ const app = {
                     if (!contactsHtml) contactsHtml = '<span class="text-muted">Нет контактов</span>';
                 }
 
+                // Управление участником - видит только организатор, и не для самого себя.
+                // Кнопка удаления - в шапке карточки, напротив имени; явка (если применимо) - отдельной строкой ниже
+                let deleteButtonHtml = '';
+                let attendanceHtml = '';
+                if (isCreator && p.id !== ride.creator) {
+                    const pid = this.extractStudentId(p.id);
+                    deleteButtonHtml = `<button class="btn btn-danger-outline btn-sm" style="flex-shrink:0;" onclick="app.kickParticipant(${pid})">Удалить</button>`;
+                    if (this.hasRideStarted(ride)) {
+                        attendanceHtml = `
+                            <div class="actions-row mt-2">
+                                <button class="btn btn-outline btn-sm" style="${!p.noShow ? 'color: var(--status-success-text); border-color: var(--status-success-text);' : ''}" onclick="app.markAttendance(${pid}, true)">Пришёл</button>
+                                <button class="btn btn-outline btn-sm" style="${p.noShow ? 'color: var(--status-warning-text); border-color: var(--status-warning-text);' : ''}" onclick="app.markAttendance(${pid}, false)">Не пришёл</button>
+                            </div>
+                        `;
+                    }
+                }
+
                 html += `
                     <div class="contact-item">
-                        <div class="contact-name">${p.name} ${role}${you}</div>
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; flex-wrap:wrap;">
+                            <div class="contact-name" style="flex:1; min-width:0;">${p.name} ${role}${you}${noShowBadge}</div>
+                            ${deleteButtonHtml}
+                        </div>
                         <div class="contact-links" style="margin-top: 8px;">
                             ${contactsHtml}
                         </div>
+                        ${attendanceHtml}
                     </div>
                 `;
             });
@@ -1001,16 +1082,23 @@ const app = {
         } else {
             // Not a participant view
             const creatorInfo = ride.participants.find(p => p.id === ride.creator) || { name: 'Студент' };
+            const creatorNoShowBadge = creatorInfo.noShowCount > 0
+                ? ` <span style="color: var(--status-warning-text); font-size: 0.85rem;">⚠ неявок: ${creatorInfo.noShowCount}</span>`
+                : '';
             html += `
-                <p>Организатор: <strong>${creatorInfo.name}</strong></p>
+                <p>Организатор: <strong>${creatorInfo.name}</strong>${creatorNoShowBadge}</p>
                 <p class="text-muted mb-3">Свободных мест: ${(ride.totalSeats + 1) - ride.participants.length}</p>
-                
+
                 <div class="alert alert-info mb-3">
                     Контакты участников откроются только после присоединения к группе.
                 </div>
-
-                <button class="btn btn-primary w-100 btn-lg" onclick="app.joinRide()">Присоединиться</button>
             `;
+
+            if (this.hasRideStarted(ride)) {
+                html += `<div class="alert alert-warning">Поездка уже началась - присоединиться нельзя.</div>`;
+            } else {
+                html += `<button class="btn btn-primary w-100 btn-lg" onclick="app.joinRide()">Присоединиться</button>`;
+            }
         }
 
         container.innerHTML = html;

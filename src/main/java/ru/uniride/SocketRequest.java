@@ -19,7 +19,9 @@ public class SocketRequest {
     // Личность для действий с поездками (createRide/joinRide/leaveRide/postponeRide/identify)
     // и для checkStatus - сервер доверяет только этому токену, не клиентским id/creator/userId
     public String studentToken;
-    public Long studentId;      // Used for approveStudent/rejectStudent/revokeAccess (admin-only actions)
+    public Long studentId;      // Target student's id - admin actions (approve/reject/revoke) OR
+                                 // organizer actions on their own ride (markAttendance/kickParticipant)
+    public Boolean attended;    // Used for markAttendance: true = был, false = не пришёл
     public String adminUsername; // Used for adminLogin
     public String adminPassword; // Used for adminLogin
     public String adminToken;    // Used for getAllUsers/approveStudent/rejectStudent/revokeAccess/adminLogout

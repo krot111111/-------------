@@ -95,6 +95,7 @@ public class Main {
                         }
                         creatorParticipant.id = myId;
                         creatorParticipant.name = student.firstName + " " + student.lastName;
+                        creatorParticipant.noShowCount = student.noShowCount;
 
                         if (!req.rideData.isValid()) {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка сервера: переданы некорректные данные поездки"));
@@ -125,6 +126,7 @@ public class Main {
                         // контакты профиля, сервер их отдельно не хранит)
                         req.user.id = myId;
                         req.user.name = student.firstName + " " + student.lastName;
+                        req.user.noShowCount = student.noShowCount;
 
                         if (isUserInActiveRide(myId)) {
                             ctx.send(new SocketResponse("errorMsg", "Ошибка: вы уже состоите в другой поездке"));
@@ -138,6 +140,10 @@ public class Main {
 
                         if (target == null) {
                             ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
+                            return;
+                        }
+                        if (target.scheduledAt != null && LocalDateTime.now().isAfter(target.scheduledAt)) {
+                            ctx.send(new SocketResponse("errorMsg", "Поездка уже началась, вступить нельзя"));
                             return;
                         }
                         if (target.participants.stream().anyMatch(p -> p.id.equals(myId))) {
@@ -205,6 +211,83 @@ public class Main {
                         target.scheduledAt = target.scheduledAt.plusMinutes(5);
                         target.time = target.scheduledAt.toLocalTime().toString();
                         broadcastRides();
+                    }
+                    // Отметка "пришёл/не пришёл" - можно переключать сколько угодно раз, пока поездка
+                    // активна. В счётчик неявок студента это попадает только один раз, при авто-удалении
+                    // поездки (expireOldRides) - здесь только локальное состояние конкретной поездки.
+                    else if ("markAttendance".equals(req.type)) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
+                            return;
+                        }
+                        String myId = "student-" + student.id;
+
+                        Ride target = rides.stream()
+                            .filter(r -> r.id.equals(req.rideId))
+                            .findFirst()
+                            .orElse(null);
+
+                        if (target == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
+                            return;
+                        }
+                        if (!target.creator.equals(myId)) {
+                            ctx.send(new SocketResponse("errorMsg", "Только организатор может отмечать явку"));
+                            return;
+                        }
+                        if (req.studentId == null || req.attended == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Не указан участник или отметка"));
+                            return;
+                        }
+                        String targetId = "student-" + req.studentId;
+                        User participant = target.participants.stream()
+                            .filter(p -> p.id.equals(targetId))
+                            .findFirst()
+                            .orElse(null);
+                        if (participant == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Участник не найден"));
+                            return;
+                        }
+                        participant.noShow = !req.attended;
+                        broadcastRides();
+                    }
+                    // Убрать одного конкретного участника, не отменяя поездку целиком -
+                    // доступно организатору в любой момент, не связано с отметкой неявки
+                    else if ("kickParticipant".equals(req.type)) {
+                        Student student = requireStudent(ctx, req.studentToken);
+                        if (student == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Требуется авторизация"));
+                            return;
+                        }
+                        String myId = "student-" + student.id;
+
+                        Ride target = rides.stream()
+                            .filter(r -> r.id.equals(req.rideId))
+                            .findFirst()
+                            .orElse(null);
+
+                        if (target == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
+                            return;
+                        }
+                        if (!target.creator.equals(myId)) {
+                            ctx.send(new SocketResponse("errorMsg", "Только организатор может убрать участника"));
+                            return;
+                        }
+                        if (req.studentId == null) {
+                            ctx.send(new SocketResponse("errorMsg", "Не указан участник"));
+                            return;
+                        }
+                        String targetId = "student-" + req.studentId;
+                        if (targetId.equals(myId)) {
+                            ctx.send(new SocketResponse("errorMsg", "Нельзя убрать самого себя - отмените поездку целиком"));
+                            return;
+                        }
+                        if (target.participants.removeIf(p -> p.id.equals(targetId))) {
+                            target.status = "ACTIVE";
+                            broadcastRides();
+                        }
                     }
                     else if ("registerStudent".equals(req.type)) {
                         String firstName = req.firstName == null ? "" : req.firstName.trim();
@@ -346,13 +429,46 @@ public class Main {
         return scheduled;
     }
 
-    // Удаляет поездки, с назначенного времени которых прошло больше 40 минут
+    // Удаляет поездки, с назначенного времени которых прошло больше 40 минут.
+    // Перед удалением один раз применяет отметки "не пришёл" к счётчику неявок студента -
+    // это единственное место, где счётчик реально меняется (переключения организатора
+    // по ходу поездки в него не пишут, только финальный снимок на момент удаления).
     private static void expireOldRides() {
         LocalDateTime now = LocalDateTime.now();
-        boolean changed = rides.removeIf(r -> r.scheduledAt != null && now.isAfter(r.scheduledAt.plusMinutes(40)));
-        if (changed) {
-            System.out.println("Удалены просроченные поездки (прошло больше 40 минут после начала)");
-            broadcastRides();
+        List<Ride> toExpire = new ArrayList<>();
+        for (Ride r : rides) {
+            if (r.scheduledAt != null && now.isAfter(r.scheduledAt.plusMinutes(40))) {
+                toExpire.add(r);
+            }
+        }
+        if (toExpire.isEmpty()) return;
+
+        for (Ride ride : toExpire) {
+            for (User p : ride.participants) {
+                if (p.noShow) {
+                    Long id = parseStudentId(p.id);
+                    if (id != null) {
+                        try {
+                            StudentRepository.incrementNoShow(id);
+                        } catch (SQLException e) {
+                            System.err.println("Не удалось обновить счётчик неявок: " + e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+        rides.removeAll(toExpire);
+        System.out.println("Удалены просроченные поездки (прошло больше 40 минут после начала)");
+        broadcastRides();
+    }
+
+    // "student-7" -> 7L; null, если строка не соответствует ожидаемому формату
+    private static Long parseStudentId(String userId) {
+        if (userId == null || !userId.startsWith("student-")) return null;
+        try {
+            return Long.parseLong(userId.substring("student-".length()));
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -413,6 +529,7 @@ public class Main {
             User redactedUser = new User();
             redactedUser.id = p.id;
             redactedUser.name = p.name;
+            redactedUser.noShowCount = p.noShowCount; // не секрет - общая репутация видна всем
             // phone/tg/vk намеренно не копируем - контакты видят только участники
             copy.participants.add(redactedUser);
         }

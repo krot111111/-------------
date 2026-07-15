@@ -42,6 +42,7 @@ public class Database {
         String addPasswordHash = "ALTER TABLE students ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)";
         String addPasswordSalt = "ALTER TABLE students ADD COLUMN IF NOT EXISTS password_salt VARCHAR(64)";
         String addSessionToken = "ALTER TABLE students ADD COLUMN IF NOT EXISTS session_token VARCHAR(64)";
+        String addNoShowCount = "ALTER TABLE students ADD COLUMN IF NOT EXISTS no_show_count INTEGER NOT NULL DEFAULT 0";
         String uniquePhoneIndex = "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_phone_number ON students (phone_number)";
         String uniqueGradebookIndex = "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_gradebook_number ON students (gradebook_number)";
         String uniqueSessionTokenIndex = "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_session_token ON students (session_token)";
@@ -53,6 +54,7 @@ public class Database {
             stmt.execute(addPasswordHash);
             stmt.execute(addPasswordSalt);
             stmt.execute(addSessionToken);
+            stmt.execute(addNoShowCount);
             stmt.execute(uniquePhoneIndex);
             stmt.execute(uniqueGradebookIndex);
             stmt.execute(uniqueSessionTokenIndex);

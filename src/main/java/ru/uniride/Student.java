@@ -12,11 +12,12 @@ public class Student {
     public String gradebookNumber;
     public String role;
     public String status;
+    public int noShowCount;
 
     public Student() {}
 
     public Student(Long id, String firstName, String lastName, String groupNumber, String phoneNumber,
-                    String gradebookNumber, String role, String status) {
+                    String gradebookNumber, String role, String status, int noShowCount) {
         this.id = id;
         this.firstName = firstName;
         this.lastName = lastName;
@@ -25,5 +26,6 @@ public class Student {
         this.gradebookNumber = gradebookNumber;
         this.role = role;
         this.status = status;
+        this.noShowCount = noShowCount;
     }
 }
