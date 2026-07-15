@@ -318,7 +318,15 @@ const app = {
     },
 
     initCreateMap() {
-        if (!window.ymaps) return;
+        // Карты грузятся асинхронно: если ещё не готовы - ждём, пока окно открыто (максимум ~10 сек)
+        if (!window.ymaps) {
+            this.createMapWait = (this.createMapWait || 0) + 1;
+            if (this.createMapWait < 20 && document.getElementById('create-ride-modal').classList.contains('active')) {
+                setTimeout(() => this.initCreateMap(), 500);
+            }
+            return;
+        }
+        this.createMapWait = 0;
         ymaps.ready(() => {
             if (this.createMapInstance) {
                 if (this.createMarker) this.createMapInstance.geoObjects.remove(this.createMarker);
@@ -486,9 +494,10 @@ const app = {
             const card = document.createElement('div');
             card.className = 'card';
             card.style.display = 'flex';
+            card.style.flexWrap = 'wrap';
             card.style.justifyContent = 'space-between';
             card.style.alignItems = 'center';
-            card.style.marginBottom = '12px';
+            card.style.gap = '8px';
 
             card.innerHTML = `
                 <div>
@@ -742,7 +751,14 @@ const app = {
         const [hours, minutes] = myRide.time.split(':').map(Number);
         const target = new Date();
         target.setHours(hours, minutes, 0, 0);
-        const diffMs = target - new Date();
+        let diffMs = target - new Date();
+
+        // Если время уже прошло больше часа назад - значит поездка на следующий день,
+        // переносим цель на завтра. "Пора выезжать!" показываем только в течение часа после времени.
+        if (diffMs < -60 * 60 * 1000) {
+            target.setDate(target.getDate() + 1);
+            diffMs = target - new Date();
+        }
 
         countdownEl.textContent = diffMs <= 0 ? 'Пора выезжать!' : `До отправления: ${this.formatCountdown(diffMs)}`;
     },
@@ -905,8 +921,8 @@ const app = {
                 // Contacts
                 let contactsHtml = '';
                 if (p.id !== state.currentUser.id) { // Don't show links to self
-                    if (p.phone) contactsHtml += `<a href="tel:${p.phone}" class="btn btn-outline btn-sm" style="margin-right:8px;">Телефон</a>`;
-                    if (p.tg) contactsHtml += `<a href="https://t.me/${p.tg.replace('@', '')}" target="_blank" class="btn btn-outline btn-sm" style="margin-right:8px;">Telegram</a>`;
+                    if (p.phone) contactsHtml += `<a href="tel:${p.phone}" class="btn btn-outline btn-sm">Телефон</a>`;
+                    if (p.tg) contactsHtml += `<a href="https://t.me/${p.tg.replace('@', '')}" target="_blank" class="btn btn-outline btn-sm">Telegram</a>`;
                     if (p.vk) contactsHtml += `<a href="${p.vk}" target="_blank" class="btn btn-outline btn-sm">ВКонтакте</a>`;
                     if (!contactsHtml) contactsHtml = '<span class="text-muted">Нет контактов</span>';
                 }
@@ -965,26 +981,39 @@ const app = {
 
         // Yandex Map Render
         const mapContainer = document.getElementById('details-map-container');
-        if (ride.lat && ride.lon && window.ymaps) {
+        if (ride.lat && ride.lon) {
             mapContainer.style.display = 'block';
-            ymaps.ready(() => {
-                if (!this.detailsMapInstance) {
-                    document.getElementById('details-map').innerHTML = '';
-                    this.detailsMapInstance = new ymaps.Map('details-map', {
-                        center: [ride.lat, ride.lon],
-                        zoom: 16,
-                        controls: ['zoomControl']
-                    });
-                    this.detailsMarker = new ymaps.Placemark([ride.lat, ride.lon], { balloonContent: 'Место встречи' }, { preset: 'islands#redIcon' });
-                    this.detailsMapInstance.geoObjects.add(this.detailsMarker);
-                } else {
-                    this.detailsMapInstance.setCenter([ride.lat, ride.lon]);
-                    this.detailsMarker.geometry.setCoordinates([ride.lat, ride.lon]);
-                }
-            });
+            this.initDetailsMap(ride);
         } else {
             if (mapContainer) mapContainer.style.display = 'none';
         }
+    },
+
+    initDetailsMap(ride) {
+        // Карты грузятся асинхронно: если ещё не готовы - ждём, пока пользователь на этом экране (максимум ~10 сек)
+        if (!window.ymaps) {
+            this.detailsMapWait = (this.detailsMapWait || 0) + 1;
+            if (this.detailsMapWait < 20 && state.currentView === 'view-ride-details') {
+                setTimeout(() => this.initDetailsMap(ride), 500);
+            }
+            return;
+        }
+        this.detailsMapWait = 0;
+        ymaps.ready(() => {
+            if (!this.detailsMapInstance) {
+                document.getElementById('details-map').innerHTML = '';
+                this.detailsMapInstance = new ymaps.Map('details-map', {
+                    center: [ride.lat, ride.lon],
+                    zoom: 16,
+                    controls: ['zoomControl']
+                });
+                this.detailsMarker = new ymaps.Placemark([ride.lat, ride.lon], { balloonContent: 'Место встречи' }, { preset: 'islands#redIcon' });
+                this.detailsMapInstance.geoObjects.add(this.detailsMarker);
+            } else {
+                this.detailsMapInstance.setCenter([ride.lat, ride.lon]);
+                this.detailsMarker.geometry.setCoordinates([ride.lat, ride.lon]);
+            }
+        });
     }
 };
 

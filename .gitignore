@@ -15,3 +15,6 @@ buildNumber.properties
 *.iml
 .vscode/
 .DS_Store
+
+# Локальный скрипт запуска с реальными паролями - НЕ коммитить
+run.sh

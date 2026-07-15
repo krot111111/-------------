@@ -6,9 +6,12 @@
     <title>UniRide | СтудТакси</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Шрифты не блокируют отрисовку: страница сразу рисуется системным шрифтом, Inter подхватывается по готовности -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
     <link rel="stylesheet" href="style.css">
-    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript"></script>
+    <!-- async: тяжёлый скрипт карт грузится в фоне и не тормозит загрузку страницы -->
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU" type="text/javascript" async></script>
 </head>
 <body>
     <nav class="navbar" id="main-nav" style="display: none;">
