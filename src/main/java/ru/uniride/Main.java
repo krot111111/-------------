@@ -233,30 +233,13 @@ public class Main {
                             ctx.send(new SocketResponse("errorMsg", "Поездка не найдена"));
                             return;
                         }
-                        if (req.studentId == null || req.attended == null) {
-                            ctx.send(new SocketResponse("errorMsg", "Не указан участник или отметка"));
-                            return;
-                        }
-                        if (target.scheduledAt != null && LocalDateTime.now().isBefore(target.scheduledAt)) {
-                            ctx.send(new SocketResponse("errorMsg", "Явку можно отмечать только после начала поездки"));
+                        String validationError = validateAttendanceMark(target, myId, req.studentId, req.attended, LocalDateTime.now());
+                        if (validationError != null) {
+                            ctx.send(new SocketResponse("errorMsg", validationError));
                             return;
                         }
 
-                        String targetId = "student-" + req.studentId;
-                        boolean requesterIsCreator = target.creator.equals(myId);
-                        boolean targetIsCreator = target.creator.equals(targetId);
-                        boolean requesterIsParticipant = target.participants.stream().anyMatch(p -> p.id.equals(myId));
-
-                        if (targetIsCreator) {
-                            if (requesterIsCreator || !requesterIsParticipant) {
-                                ctx.send(new SocketResponse("errorMsg", "Организатора могут отмечать только попутчики"));
-                                return;
-                            }
-                        } else if (!requesterIsCreator) {
-                            ctx.send(new SocketResponse("errorMsg", "Только организатор может отмечать явку участников"));
-                            return;
-                        }
-
+                        String targetId = studentUserId(req.studentId);
                         User participant = target.participants.stream()
                             .filter(p -> p.id.equals(targetId))
                             .findFirst()
@@ -427,7 +410,11 @@ public class Main {
     }
 
     private static boolean isUserInActiveRide(String userId) {
-        return rides.stream().anyMatch(r ->
+        return isUserInActiveRide(rides, userId);
+    }
+
+    static boolean isUserInActiveRide(List<Ride> source, String userId) {
+        return source.stream().anyMatch(r ->
             ("ACTIVE".equals(r.status) || "FULL".equals(r.status)) &&
             r.participants.stream().anyMatch(p -> p.id.equals(userId))
         );
@@ -436,8 +423,11 @@ public class Main {
     // Поездка хранит время только как "ЧЧ:мм" без даты. Если это время уже прошло больше
     // часа назад - считаем, что имелось в виду завтра (та же эвристика, что и в таймере на клиенте).
     private static LocalDateTime resolveScheduledAt(String timeStr) {
+        return resolveScheduledAt(timeStr, LocalDateTime.now());
+    }
+
+    static LocalDateTime resolveScheduledAt(String timeStr, LocalDateTime now) {
         LocalTime time = LocalTime.parse(timeStr);
-        LocalDateTime now = LocalDateTime.now();
         LocalDateTime scheduled = now.withHour(time.getHour()).withMinute(time.getMinute()).withSecond(0).withNano(0);
         if (scheduled.isBefore(now.minusHours(1))) {
             scheduled = scheduled.plusDays(1);
@@ -453,7 +443,7 @@ public class Main {
         LocalDateTime now = LocalDateTime.now();
         List<Ride> toExpire = new ArrayList<>();
         for (Ride r : rides) {
-            if (r.scheduledAt != null && now.isAfter(r.scheduledAt.plusMinutes(40))) {
+            if (shouldExpireRide(r, now)) {
                 toExpire.add(r);
             }
         }
@@ -479,7 +469,11 @@ public class Main {
     }
 
     // "student-7" -> 7L; null, если строка не соответствует ожидаемому формату
-    private static Long parseStudentId(String userId) {
+    static boolean shouldExpireRide(Ride ride, LocalDateTime now) {
+        return ride.scheduledAt != null && now.isAfter(ride.scheduledAt.plusMinutes(40));
+    }
+
+    static Long parseStudentId(String userId) {
         if (userId == null || !userId.startsWith("student-")) return null;
         try {
             return Long.parseLong(userId.substring("student-".length()));
@@ -491,9 +485,16 @@ public class Main {
     // Вызывается при отказе/отзыве доступа - если пользователь был организатором поездки,
     // поездка отменяется целиком; если просто участником - убираем его из списка
     private static void removeUserFromAllRides(String userId) {
+        boolean changed = removeUserFromRides(rides, userId);
+        if (changed) {
+            broadcastRides();
+        }
+    }
+
+    static boolean removeUserFromRides(List<Ride> source, String userId) {
         List<Ride> toRemove = new ArrayList<>();
         boolean changed = false;
-        for (Ride ride : rides) {
+        for (Ride ride : source) {
             if (userId.equals(ride.creator)) {
                 toRemove.add(ride);
                 changed = true;
@@ -502,10 +503,8 @@ public class Main {
                 changed = true;
             }
         }
-        rides.removeAll(toRemove);
-        if (changed) {
-            broadcastRides();
-        }
+        source.removeAll(toRemove);
+        return changed;
     }
 
     // Каждому подключению рассылается своя версия списка: в чужих поездках
@@ -521,9 +520,13 @@ public class Main {
     // Возвращает список поездок для конкретного студента: в его собственных поездках -
     // полные данные, в остальных - без контактов участников и без координат точки сбора
     private static List<Ride> visibleRidesFor(Long studentId) {
+        return visibleRidesFor(rides, studentId);
+    }
+
+    static List<Ride> visibleRidesFor(List<Ride> source, Long studentId) {
         String myId = studentId == null ? null : "student-" + studentId;
         List<Ride> result = new ArrayList<>();
-        for (Ride r : rides) {
+        for (Ride r : source) {
             boolean isMine = myId != null && (myId.equals(r.creator) || r.participants.stream().anyMatch(p -> myId.equals(p.id)));
             result.add(isMine ? r : redacted(r));
         }
@@ -531,7 +534,7 @@ public class Main {
     }
 
     // Копия поездки только с полями, безопасными для показа не-участнику
-    private static Ride redacted(Ride original) {
+    static Ride redacted(Ride original) {
         Ride copy = new Ride();
         copy.id = original.id;
         copy.creator = original.creator;
@@ -550,6 +553,42 @@ public class Main {
             copy.participants.add(redactedUser);
         }
         return copy;
+    }
+
+    static String studentUserId(long studentId) {
+        return "student-" + studentId;
+    }
+
+    static String validateAttendanceMark(Ride target, String requesterId, Long targetStudentId,
+                                         Boolean attended, LocalDateTime now) {
+        if (target == null) {
+            return "Поездка не найдена";
+        }
+        if (targetStudentId == null || attended == null) {
+            return "Не указан участник или отметка";
+        }
+        if (target.scheduledAt != null && now.isBefore(target.scheduledAt)) {
+            return "Явку можно отмечать только после начала поездки";
+        }
+
+        String targetId = studentUserId(targetStudentId);
+        boolean requesterIsCreator = requesterId != null && requesterId.equals(target.creator);
+        boolean targetIsCreator = targetId.equals(target.creator);
+        boolean requesterIsParticipant = target.participants.stream().anyMatch(p -> requesterId != null && requesterId.equals(p.id));
+
+        if (targetIsCreator) {
+            if (requesterIsCreator || !requesterIsParticipant) {
+                return "Организатора могут отмечать только попутчики";
+            }
+        } else if (!requesterIsCreator) {
+            return "Только организатор может отмечать явку участников";
+        }
+
+        boolean targetIsParticipant = target.participants.stream().anyMatch(p -> targetId.equals(p.id));
+        if (!targetIsParticipant) {
+            return "Участник не найден";
+        }
+        return null;
     }
 
     // Находит студента по токену сессии и запоминает, какое соединение ему принадлежит -
